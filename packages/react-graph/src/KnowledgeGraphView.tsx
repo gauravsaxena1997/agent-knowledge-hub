@@ -1,61 +1,24 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { MultiDirectedGraph } from "graphology";
+import { useEffect, useMemo, useRef, useState, type Ref } from "react";
 import {
-  formatConfidenceLevel,
-  formatEdgeKind,
-  formatEmbeddingState,
-  formatFreshnessState,
-  formatNodeKind,
-  type GraphSnapshot,
-  type KnowledgeEdge,
   type KnowledgeNode,
-  type KnowledgeNodeKind,
+  type KnowledgeNodeKind as KnowledgeNodeKindValue,
 } from "@agent-knowledge-hub/core";
 import { defaultNodeColor } from "./colors.js";
-
-type KnowledgeGraphology = InstanceType<typeof MultiDirectedGraph>;
-type SigmaRenderer = {
-  kill: () => void;
-  on: (event: "clickNode", handler: (payload: { node: string }) => void) => void;
-};
-
-export interface KnowledgeGraphViewProps {
-  graph: GraphSnapshot;
-  height?: number | string;
-  nodeColor?: (node: KnowledgeNode) => string;
-  edgeLabel?: (edge: KnowledgeEdge) => string;
-  onNodeOpen?: (node: KnowledgeNode) => void;
-  className?: string;
-  title?: string;
-  description?: string;
-  showControls?: boolean;
-}
-
-function buildGraph(snapshot: GraphSnapshot, nodeColor: (node: KnowledgeNode) => string): KnowledgeGraphology {
-  const graph = new MultiDirectedGraph();
-  const radius = Math.max(1, snapshot.nodes.length / 8);
-  snapshot.nodes.forEach((node, index) => {
-    const angle = (index / Math.max(1, snapshot.nodes.length)) * Math.PI * 2;
-    graph.addNode(node.id, {
-      label: node.label,
-      size: Math.max(5, Math.min(16, 6 + node.tags.length)),
-      color: nodeColor(node),
-      x: Math.cos(angle) * radius,
-      y: Math.sin(angle) * radius,
-      data: node,
-    });
-  });
-  for (const edge of snapshot.edges) {
-    if (!graph.hasNode(edge.fromId) || !graph.hasNode(edge.toId)) continue;
-    graph.addDirectedEdgeWithKey(edge.id, edge.fromId, edge.toId, {
-      label: edge.label ?? formatEdgeKind(edge.kind),
-      size: 1.2,
-      color: "#cbd5e1",
-      data: edge,
-    });
-  }
-  return graph;
-}
+import { buildForceGraph3DData, buildGraph } from "./knowledge-graph/data.js";
+import { GraphLegend, GraphSidebar, GraphViewportTopBar } from "./knowledge-graph/panels.js";
+import {
+  FORCE_GRAPH_SCENE_BACKGROUND,
+  buildGraphKindLegend,
+  forceGraphScenePanelBackground,
+  forceGraphScenePanelBorder,
+} from "./knowledge-graph/scene.js";
+import type {
+  ForceGraph3DComponentType,
+  ForceGraph3DInstance,
+  KnowledgeGraphViewProps,
+  SigmaRenderer,
+} from "./knowledge-graph/types.js";
+export type { KnowledgeGraphViewProps } from "./knowledge-graph/types.js";
 
 export function KnowledgeGraphView({
   graph,
@@ -66,16 +29,28 @@ export function KnowledgeGraphView({
   title = "Knowledge Graph",
   description = "Search, filter, and inspect source-backed knowledge relationships.",
   showControls = true,
+  renderer = "2d",
 }: KnowledgeGraphViewProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const sigmaRef = useRef<SigmaRenderer | null>(null);
+  const forceGraph3dRef = useRef<ForceGraph3DInstance | null>(null);
+  const interactionResumeTimeoutRef = useRef<number | null>(null);
+  const initial3dFitDoneRef = useRef(false);
   const [query, setQuery] = useState("");
-  const [selectedKinds, setSelectedKinds] = useState<Set<KnowledgeNodeKind | string>>(() => new Set());
-  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(graph.nodes[0]?.id ?? null);
+  const [selectedKinds, setSelectedKinds] = useState<Set<KnowledgeNodeKindValue | string>>(() => new Set());
+  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+  const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
+  const [forceGraph3DComponent, setForceGraph3DComponent] = useState<ForceGraph3DComponentType | null>(null);
+  const [viewport, setViewport] = useState({ width: 0, height: 0 });
+  const [isPointerInsideGraph, setIsPointerInsideGraph] = useState(false);
+  const [isUserInteracting, setIsUserInteracting] = useState(false);
   const availableKinds = useMemo(
     () => Array.from(new Set(graph.nodes.map((node) => node.kind))).sort(),
     [graph.nodes],
   );
+  const ForceGraph3DComponent = forceGraph3DComponent;
+  const activeNeighborhoodNodeId = hoveredNodeId ?? selectedNodeId;
+  const graphPanelTitle = renderer === "3d" ? "Drag to rotate, scroll to zoom, click a node to inspect connections." : title;
   const filteredGraph = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
     const nodes = graph.nodes.filter((node) => {
@@ -103,13 +78,49 @@ export function KnowledgeGraphView({
     if (!selectedNode) return [];
     return graph.edges.filter((edge) => edge.fromId === selectedNode.id || edge.toId === selectedNode.id);
   }, [graph.edges, selectedNode]);
+  const highlightedNodeIds = useMemo(() => {
+    if (!activeNeighborhoodNodeId) return new Set<string>();
+
+    const neighborIds = new Set<string>([activeNeighborhoodNodeId]);
+    for (const edge of filteredGraph.edges) {
+      if (edge.fromId === activeNeighborhoodNodeId) neighborIds.add(edge.toId);
+      if (edge.toId === activeNeighborhoodNodeId) neighborIds.add(edge.fromId);
+    }
+    return neighborIds;
+  }, [activeNeighborhoodNodeId, filteredGraph.edges]);
+  const forceGraph3DData = useMemo(() => buildForceGraph3DData(filteredGraph), [filteredGraph]);
+  const graphKindLegend = useMemo(() => buildGraphKindLegend(filteredGraph.nodes), [filteredGraph.nodes]);
+  const selectedNodeNeighborCount = useMemo(() => {
+    if (!selectedNodeId) return 0;
+    return highlightedNodeIds.size > 0 ? highlightedNodeIds.size - 1 : 0;
+  }, [highlightedNodeIds.size, selectedNodeId]);
+  const isAmbientMotionEnabled = renderer === "3d" && !isPointerInsideGraph && !isUserInteracting && !selectedNodeId && !hoveredNodeId;
 
   useEffect(() => {
-    if (selectedNodeId && filteredGraph.nodes.some((node) => node.id === selectedNodeId)) return;
-    setSelectedNodeId(filteredGraph.nodes[0]?.id ?? null);
+    if (!selectedNodeId) return;
+    if (filteredGraph.nodes.some((node) => node.id === selectedNodeId)) return;
+    setSelectedNodeId(null);
   }, [filteredGraph.nodes, selectedNodeId]);
 
   useEffect(() => {
+    if (renderer !== "3d") return;
+    initial3dFitDoneRef.current = false;
+  }, [renderer, filteredGraph.nodes.length, filteredGraph.edges.length]);
+
+  useEffect(() => {
+    return () => {
+      if (interactionResumeTimeoutRef.current != null) {
+        window.clearTimeout(interactionResumeTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    if (renderer !== "2d") {
+      sigmaRef.current?.kill();
+      sigmaRef.current = null;
+      return;
+    }
     if (!containerRef.current) return;
     let disposed = false;
     sigmaRef.current?.kill();
@@ -133,15 +144,153 @@ export function KnowledgeGraphView({
       sigmaRef.current?.kill();
       sigmaRef.current = null;
     };
-  }, [graphology, onNodeOpen]);
+  }, [graphology, onNodeOpen, renderer]);
 
-  const toggleKind = (kind: KnowledgeNodeKind | string) => {
+  useEffect(() => {
+    if (renderer !== "3d") return;
+    if (forceGraph3DComponent) return;
+
+    let disposed = false;
+    void import("react-force-graph-3d").then((module) => {
+      if (disposed) return;
+      setForceGraph3DComponent(() => module.default as unknown as ForceGraph3DComponentType);
+    });
+
+    return () => {
+      disposed = true;
+    };
+  }, [forceGraph3DComponent, renderer]);
+
+  useEffect(() => {
+    if (!containerRef.current) return;
+    const element = containerRef.current;
+    const updateViewport = () => {
+      setViewport({
+        width: Math.max(element.clientWidth, 320),
+        height: Math.max(element.clientHeight, 320),
+      });
+    };
+
+    const resizeObserver = new ResizeObserver(updateViewport);
+    resizeObserver.observe(element);
+    updateViewport();
+
+    return () => resizeObserver.disconnect();
+  }, []);
+
+  useEffect(() => {
+    if (renderer !== "3d") return;
+    if (!selectedNodeId) return;
+    const activeNode = forceGraph3DData.nodes.find((node) => node.id === selectedNodeId);
+    if (!activeNode) return;
+    if (activeNode.x == null || activeNode.y == null || activeNode.z == null) return;
+
+    forceGraph3dRef.current?.cameraPosition(
+      { x: activeNode.x * 1.22, y: activeNode.y * 1.22, z: (activeNode.z ?? 0) + 92 },
+      activeNode,
+      900,
+    );
+  }, [forceGraph3DData.nodes, renderer, selectedNodeId]);
+
+  useEffect(() => {
+    if (!isAmbientMotionEnabled) return;
+
+    let frameId = 0;
+    const tick = () => {
+      const time = Date.now() * 0.00008;
+      forceGraph3dRef.current?.cameraPosition(
+        {
+          x: Math.cos(time) * 320,
+          y: 34 + Math.sin(time * 1.6) * 46,
+          z: 280 + Math.sin(time) * 44,
+        },
+        { x: 0, y: 0, z: 0 },
+      );
+      frameId = window.requestAnimationFrame(tick);
+    };
+
+    frameId = window.requestAnimationFrame(tick);
+    return () => window.cancelAnimationFrame(frameId);
+  }, [isAmbientMotionEnabled]);
+
+  useEffect(() => {
+    if (renderer !== "3d") return;
+    const timeoutId = window.setTimeout(() => {
+      forceGraph3dRef.current?.cameraPosition({ x: 0, y: 0, z: 320 }, { x: 0, y: 0, z: 0 }, 0);
+      forceGraph3dRef.current?.zoomToFit?.(900, 72);
+    }, 180);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [renderer, filteredGraph.nodes.length, filteredGraph.edges.length]);
+
+  const toggleKind = (kind: KnowledgeNodeKindValue | string) => {
     setSelectedKinds((current) => {
       const next = new Set(current);
       if (next.has(kind)) next.delete(kind);
       else next.add(kind);
       return next;
     });
+  };
+  const pauseAmbientMotion = (resumeAfterMs?: number) => {
+    if (renderer !== "3d") return;
+    setIsUserInteracting(true);
+    if (interactionResumeTimeoutRef.current != null) {
+      window.clearTimeout(interactionResumeTimeoutRef.current);
+      interactionResumeTimeoutRef.current = null;
+    }
+    if (resumeAfterMs != null) {
+      interactionResumeTimeoutRef.current = window.setTimeout(() => {
+        setIsUserInteracting(false);
+        interactionResumeTimeoutRef.current = null;
+      }, resumeAfterMs);
+    }
+  };
+  const handleGraphPointerEnter = () => {
+    if (renderer !== "3d") return;
+    setIsPointerInsideGraph(true);
+    pauseAmbientMotion();
+  };
+  const handleGraphPointerLeave = () => {
+    if (renderer !== "3d") return;
+    setIsPointerInsideGraph(false);
+    pauseAmbientMotion(1400);
+  };
+  const handleGraphWheel = () => {
+    pauseAmbientMotion(2200);
+  };
+  const handleGraphPointerDown = () => {
+    pauseAmbientMotion();
+  };
+  const handleGraphPointerUp = () => {
+    pauseAmbientMotion(2200);
+  };
+  const focusSelectedNode = () => {
+    if (renderer !== "3d" || !selectedNodeId) return;
+    pauseAmbientMotion(2600);
+    const activeNode = forceGraph3DData.nodes.find((node) => node.id === selectedNodeId);
+    if (!activeNode || activeNode.x == null || activeNode.y == null || activeNode.z == null) return;
+
+    forceGraph3dRef.current?.cameraPosition(
+      { x: activeNode.x * 1.22, y: activeNode.y * 1.22, z: (activeNode.z ?? 0) + 92 },
+      activeNode,
+      900,
+    );
+  };
+  const fitGraphToViewport = () => {
+    if (renderer !== "3d") return;
+    pauseAmbientMotion(2600);
+    forceGraph3dRef.current?.zoomToFit?.(900, 72);
+  };
+  const resetGraphView = () => {
+    setSelectedNodeId(null);
+    setHoveredNodeId(null);
+    if (renderer === "3d") {
+      pauseAmbientMotion(2600);
+      forceGraph3dRef.current?.cameraPosition({ x: 0, y: 0, z: 320 }, { x: 0, y: 0, z: 0 }, 800);
+      window.setTimeout(() => {
+        forceGraph3dRef.current?.zoomToFit?.(900, 72);
+      }, 120);
+    }
   };
 
   return (
@@ -160,194 +309,127 @@ export function KnowledgeGraphView({
         style={{
           position: "relative",
           minHeight: 320,
-          border: "1px solid #e4e4e7",
+          border: `1px solid ${forceGraphScenePanelBorder(renderer)}`,
           borderRadius: 8,
           overflow: "hidden",
-          background: "#fafafa",
+          background: forceGraphScenePanelBackground(renderer),
+          boxShadow: renderer === "3d" ? "inset 0 1px 0 rgba(255,255,255,0.04)" : "none",
         }}
       >
+        {renderer === "3d" && (
+          <div
+            style={{
+              position: "absolute",
+              inset: 0,
+              background: [
+                "radial-gradient(circle at 16% 18%, rgba(110,231,255,0.14), transparent 24%)",
+                "radial-gradient(circle at 78% 20%, rgba(192,132,252,0.16), transparent 18%)",
+                "radial-gradient(circle at 62% 76%, rgba(250,204,21,0.12), transparent 22%)",
+                "linear-gradient(180deg, rgba(7,17,31,0.92) 0%, rgba(4,9,20,0.98) 100%)",
+              ].join(","),
+              pointerEvents: "none",
+              zIndex: 0,
+            }}
+          />
+        )}
+        <GraphViewportTopBar
+          renderer={renderer}
+          title={title}
+          subtitle={`${filteredGraph.nodes.length} nodes / ${filteredGraph.edges.length} edges${renderer === "3d" ? ` • ${graphPanelTitle}` : ""}`}
+          selectedNodeId={selectedNodeId}
+          onFit={fitGraphToViewport}
+          onReset={resetGraphView}
+          onFocus={focusSelectedNode}
+        />
+        {renderer === "3d" && (
+          <GraphLegend items={graphKindLegend} />
+        )}
         <div
-          style={{
-            position: "absolute",
-            left: 12,
-            right: 12,
-            top: 12,
-            zIndex: 2,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            gap: 8,
-            pointerEvents: "none",
-          }}
+          ref={containerRef}
+          style={{ position: "absolute", inset: 0 }}
+          onMouseEnter={handleGraphPointerEnter}
+          onMouseLeave={handleGraphPointerLeave}
+          onWheel={handleGraphWheel}
+          onMouseDown={handleGraphPointerDown}
+          onMouseUp={handleGraphPointerUp}
         >
-          <div style={{ borderRadius: 8, background: "rgba(255,255,255,0.92)", padding: "8px 10px" }}>
-            <div style={{ color: "#18181b", fontSize: 13, fontWeight: 800 }}>{title}</div>
-            <div style={{ color: "#71717a", fontSize: 11 }}>{filteredGraph.nodes.length} nodes / {filteredGraph.edges.length} edges</div>
-          </div>
-        </div>
-        <div ref={containerRef} style={{ position: "absolute", inset: 0 }} />
-      </div>
-      {showControls && (
-        <aside
-          style={{
-            minHeight: 320,
-            overflow: "auto",
-            border: "1px solid #e4e4e7",
-            borderRadius: 8,
-            background: "#ffffff",
-          }}
-        >
-          <div style={{ borderBottom: "1px solid #e4e4e7", padding: 12 }}>
-            <div style={{ color: "#18181b", fontSize: 14, fontWeight: 800 }}>{title}</div>
-            <p style={{ color: "#71717a", fontSize: 12, lineHeight: 1.45, margin: "4px 0 0" }}>{description}</p>
-          </div>
-          <div style={{ borderBottom: "1px solid #e4e4e7", padding: 12 }}>
-            <input
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder="Search nodes, tags, metadata"
-              style={{
-                width: "100%",
-                border: "1px solid #d4d4d8",
-                borderRadius: 8,
-                color: "#18181b",
-                fontSize: 12,
-                outline: "none",
-                padding: "8px 10px",
+          {renderer === "3d" && ForceGraph3DComponent ? (
+            <ForceGraph3DComponent
+              key={`3d-${filteredGraph.nodes.length}-${filteredGraph.edges.length}-${query}-${Array.from(selectedKinds).sort().join(",")}`}
+              ref={forceGraph3dRef as Ref<ForceGraph3DInstance>}
+              width={viewport.width}
+              height={viewport.height}
+              graphData={forceGraph3DData}
+              backgroundColor={FORCE_GRAPH_SCENE_BACKGROUND}
+              showNavInfo={false}
+              nodeResolution={18}
+              nodeOpacity={1}
+              linkOpacity={0.56}
+              enableNodeDrag={true}
+              nodeLabel={(node) => node.label}
+              nodeColor={(node) => {
+                if (highlightedNodeIds.size === 0) return node.color;
+                return highlightedNodeIds.has(node.id) ? node.color : "#334155";
+              }}
+              linkColor={(link) => {
+                const sourceId = String(link.source);
+                const targetId = String(link.target);
+                if (highlightedNodeIds.size === 0) return "rgba(196,213,255,0.34)";
+                return highlightedNodeIds.has(sourceId) && highlightedNodeIds.has(targetId)
+                  ? "rgba(236,253,245,0.95)"
+                  : "rgba(51,65,85,0.24)";
+              }}
+              linkWidth={(link) => {
+                const sourceId = String(link.source);
+                const targetId = String(link.target);
+                if (hoveredNodeId && (sourceId === hoveredNodeId || targetId === hoveredNodeId)) return 1.4;
+                return selectedNodeId && (sourceId === selectedNodeId || targetId === selectedNodeId) ? 1.8 : 0.7;
+              }}
+              linkDirectionalParticles={(link) => {
+                const sourceId = String(link.source);
+                const targetId = String(link.target);
+                if (hoveredNodeId && (sourceId === hoveredNodeId || targetId === hoveredNodeId)) return 2;
+                return selectedNodeId && (sourceId === selectedNodeId || targetId === selectedNodeId) ? 3 : 0;
+              }}
+              linkDirectionalParticleSpeed={0.0045}
+              linkDirectionalParticleColor={() => "#dbeafe"}
+              onNodeHover={(node) => {
+                if (node) pauseAmbientMotion(1800);
+                setHoveredNodeId(node?.id ?? null);
+              }}
+              onNodeClick={(node) => {
+                pauseAmbientMotion(2600);
+                setSelectedNodeId(node.id);
+                const data = filteredGraph.nodes.find((graphNode) => graphNode.id === node.id);
+                if (data) onNodeOpen?.(data);
+              }}
+              onEngineStop={() => {
+                if (initial3dFitDoneRef.current) return;
+                initial3dFitDoneRef.current = true;
+                forceGraph3dRef.current?.cameraPosition({ x: 0, y: 0, z: 320 }, { x: 0, y: 0, z: 0 }, 0);
+                forceGraph3dRef.current?.zoomToFit?.(1000, 72);
               }}
             />
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 10 }}>
-              {availableKinds.map((kind) => {
-                const active = selectedKinds.size === 0 || selectedKinds.has(kind);
-                return (
-                  <button
-                    key={kind}
-                    type="button"
-                    onClick={() => toggleKind(kind)}
-                    style={{
-                      border: "1px solid #d4d4d8",
-                      borderRadius: 8,
-                      background: active ? "#18181b" : "#ffffff",
-                      color: active ? "#ffffff" : "#52525b",
-                      cursor: "pointer",
-                      fontSize: 11,
-                      fontWeight: 700,
-                      padding: "5px 8px",
-                    }}
-                  >
-                    {formatNodeKind(kind)}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-          <div style={{ borderBottom: "1px solid #e4e4e7", maxHeight: 180, overflow: "auto", padding: 8 }}>
-            {filteredGraph.nodes.map((node) => (
-              <button
-                key={node.id}
-                type="button"
-                onClick={() => setSelectedNodeId(node.id)}
-                style={{
-                  width: "100%",
-                  border: selectedNode?.id === node.id ? "1px solid #18181b" : "1px solid transparent",
-                  borderRadius: 8,
-                  background: selectedNode?.id === node.id ? "#f4f4f5" : "#ffffff",
-                  color: "#18181b",
-                  cursor: "pointer",
-                  display: "block",
-                  marginBottom: 4,
-                  padding: 8,
-                  textAlign: "left",
-                }}
-              >
-                <div style={{ alignItems: "center", display: "flex", gap: 8 }}>
-                  <span
-                    style={{
-                      background: nodeColor(node),
-                      borderRadius: 999,
-                      display: "inline-block",
-                      height: 8,
-                      width: 8,
-                    }}
-                  />
-                  <span style={{ fontSize: 12, fontWeight: 800 }}>{node.label}</span>
-                </div>
-                <div style={{ color: "#71717a", fontSize: 11, marginTop: 3 }}>{formatNodeKind(node.kind)}</div>
-              </button>
-            ))}
-          </div>
-          <div style={{ padding: 12 }}>
-            {selectedNode ? (
-              <>
-                <div style={{ color: "#18181b", fontSize: 14, fontWeight: 900 }}>{selectedNode.label}</div>
-                <div style={{ color: "#71717a", fontSize: 11, fontWeight: 700, marginTop: 3 }}>
-                  {formatNodeKind(selectedNode.kind)}
-                </div>
-                {selectedNode.body && (
-                  <p style={{ color: "#3f3f46", fontSize: 12, lineHeight: 1.5, margin: "10px 0 0" }}>{selectedNode.body}</p>
-                )}
-                <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 10 }}>
-                  {selectedNode.tags.map((tag) => (
-                    <span
-                      key={tag}
-                      style={{
-                        background: "#f4f4f5",
-                        border: "1px solid #e4e4e7",
-                        borderRadius: 999,
-                        color: "#52525b",
-                        fontSize: 10,
-                        fontWeight: 700,
-                        padding: "3px 7px",
-                      }}
-                    >
-                      {tag}
-                    </span>
-                  ))}
-                </div>
-                <dl style={{ display: "grid", gap: 6, margin: "12px 0 0" }}>
-                  <div>
-                    <dt style={{ color: "#71717a", fontSize: 10, fontWeight: 800, textTransform: "uppercase" }}>Confidence</dt>
-                    <dd style={{ color: "#18181b", fontSize: 12, margin: 0 }}>
-                      {formatConfidenceLevel(selectedNode.confidence)}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt style={{ color: "#71717a", fontSize: 10, fontWeight: 800, textTransform: "uppercase" }}>Freshness</dt>
-                    <dd style={{ color: "#18181b", fontSize: 12, margin: 0 }}>
-                      {formatFreshnessState(selectedNode.freshness)}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt style={{ color: "#71717a", fontSize: 10, fontWeight: 800, textTransform: "uppercase" }}>Embedding</dt>
-                    <dd style={{ color: "#18181b", fontSize: 12, margin: 0 }}>
-                      {formatEmbeddingState(selectedNode.embeddingState)}
-                    </dd>
-                  </div>
-                </dl>
-                <div style={{ marginTop: 12 }}>
-                  <div style={{ color: "#71717a", fontSize: 10, fontWeight: 800, textTransform: "uppercase" }}>Edges</div>
-                  <div style={{ display: "grid", gap: 6, marginTop: 6 }}>
-                    {selectedNodeEdges.map((edge) => (
-                      <div key={edge.id} style={{ border: "1px solid #e4e4e7", borderRadius: 8, padding: 7 }}>
-                        <div style={{ color: "#18181b", fontSize: 11, fontWeight: 800 }}>
-                          {edge.label ?? formatEdgeKind(edge.kind)}
-                        </div>
-                        <div style={{ color: "#71717a", fontSize: 10 }}>
-                          {edge.fromId} {"->"} {edge.toId}
-                        </div>
-                      </div>
-                    ))}
-                    {selectedNodeEdges.length === 0 && (
-                      <div style={{ color: "#71717a", fontSize: 12 }}>No edges match the current graph.</div>
-                    )}
-                  </div>
-                </div>
-              </>
-            ) : (
-              <div style={{ color: "#71717a", fontSize: 12 }}>No node selected.</div>
-            )}
-          </div>
-        </aside>
+          ) : null}
+        </div>
+      </div>
+      {showControls && (
+        <GraphSidebar
+          availableKinds={availableKinds}
+          description={description}
+          filteredNodes={filteredGraph.nodes}
+          nodeColor={nodeColor}
+          onSearchChange={setQuery}
+          onSelectKind={toggleKind}
+          onSelectNode={setSelectedNodeId}
+          query={query}
+          renderer={renderer}
+          selectedKinds={selectedKinds}
+          selectedNode={selectedNode}
+          selectedNodeEdges={selectedNodeEdges}
+          selectedNodeNeighborCount={selectedNodeNeighborCount}
+          title={title}
+        />
       )}
     </div>
   );
