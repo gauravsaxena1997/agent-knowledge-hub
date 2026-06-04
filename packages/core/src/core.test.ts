@@ -29,10 +29,10 @@ describe("Agent Knowledge Hub", () => {
       id: "person:owner",
       kind: KnowledgeNodeKind.ENTITY,
       label: "Example Engineer",
-      body: "Senior full-stack engineer focused on workflows and TypeScript.",
-      tags: ["about-me"],
+      body: "Senior full-stack engineer focused on retrieval systems and TypeScript.",
+      tags: ["engineering"],
       metadata: {},
-      sourceIds: ["source:profile"],
+      sourceIds: ["source:team-notes"],
       confidence: ConfidenceLevel.USER_CONFIRMED,
       freshness: "fresh",
       embeddingState: "pending",
@@ -41,8 +41,8 @@ describe("Agent Knowledge Hub", () => {
     await indexer.indexNode({
       id: "company:highlevel",
       kind: KnowledgeNodeKind.ENTITY,
-      label: "HighLevel",
-      body: "Company with workflow automation product surface.",
+      label: "Northstar Cloud",
+      body: "Cloud software company evaluating agent-ready knowledge infrastructure.",
       tags: ["company"],
       metadata: {},
       sourceIds: [],
@@ -62,7 +62,7 @@ describe("Agent Knowledge Hub", () => {
     });
 
     const hits = await retriever.retrieve({
-      query: "workflow TypeScript profile",
+      query: "retrieval TypeScript engineering",
       limit: 3,
       expandDepth: 1,
     });

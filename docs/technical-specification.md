@@ -2,8 +2,8 @@
 
 ## Scope
 
-Agent Knowledge Hub is a reusable knowledge runtime for host applications that
-need durable agent memory, semantic retrieval, and graph relationships.
+Agent Knowledge Hub is a reusable knowledge runtime for applications that need
+durable agent memory, semantic retrieval, and graph relationships.
 
 ## Core Concepts
 
@@ -17,7 +17,7 @@ need durable agent memory, semantic retrieval, and graph relationships.
 
 ### Edge kinds
 
-The core package defines normalized edge kinds and validation. Host apps may
+The core package defines normalized edge kinds and validation. Applications may
 extend the meaning of edges through metadata and application-level conventions.
 
 ### Source references
@@ -30,7 +30,7 @@ inspection remain source-backed.
 ### `@agent-knowledge-hub/core`
 
 - schemas
-- graph/vector contracts
+- graph and vector contracts
 - chunking
 - indexing orchestration
 - retrieval orchestration
@@ -63,10 +63,10 @@ inspection remain source-backed.
 
 ## Runtime Flow
 
-1. Host app emits or migrates durable knowledge records.
+1. The application emits or migrates durable knowledge records.
 2. Graph store upserts canonical nodes, edges, and sources.
 3. Text nodes are chunked.
-4. Host app provides embeddings.
+4. The application provides embeddings.
 5. Vector store upserts chunk vectors.
 6. Retrieval combines vector results with graph expansion.
 
@@ -74,14 +74,14 @@ inspection remain source-backed.
 
 Agent Knowledge Hub is not responsible for:
 
-- workflow orchestration
-- job/run history
+- job orchestration
+- job history and transient execution logs
 - app-specific UI state
 - authentication
 - embedding model hosting
 
 ## Deployment Model
 
-- package code is consumed by a host app
-- graph/vector services run separately
+- package code is consumed by an application
+- graph and vector services run separately
 - local and VPS deployments should use the same explicit memory profile unless workload changes justify retuning

@@ -1,15 +1,16 @@
 # @agent-knowledge-hub/demo-data
 
-Synthetic demo graph for validating Agent Knowledge Hub products without importing private application data.
+Synthetic demo graph for validating Agent Knowledge Hub without importing real
+application data.
 
 The dataset intentionally covers:
 
-- owner/profile knowledge
-- corporate application answers
-- portfolio/project knowledge
-- people and company entities
-- outreach/application interactions
-- frameworks, tactics, and source references
+- product and team knowledge
+- customer and partner entities
+- service and support activities
+- documentation and source references
+- framework and policy records
 - chunk and embedding lifecycle states
 
-It excludes workflows and run logs by design.
+It excludes scheduler state, transient logs, and app-specific operational
+records by design.

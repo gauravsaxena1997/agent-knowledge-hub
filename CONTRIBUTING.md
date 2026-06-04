@@ -13,7 +13,7 @@ pnpm test
 - Keep changes scoped.
 - Add or update docs when public APIs change.
 - Add focused tests for behavior changes.
-- Do not commit private application data, secrets, or host-app-specific content.
+- Do not commit private application data, secrets, or application-specific proprietary content.
 
 ## Release Readiness
 
