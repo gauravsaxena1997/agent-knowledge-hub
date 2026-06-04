@@ -1,0 +1,45 @@
+{
+  "name": "@agent-knowledge-hub/mcp",
+  "version": "0.1.0",
+  "description": "MCP tool builders for Agent Knowledge Hub.",
+  "license": "MIT",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/gauravsaxena1997/agent-knowledge-hub.git",
+    "directory": "packages/mcp"
+  },
+  "bugs": {
+    "url": "https://github.com/gauravsaxena1997/agent-knowledge-hub/issues"
+  },
+  "homepage": "https://github.com/gauravsaxena1997/agent-knowledge-hub/tree/main/packages/mcp",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "package.json"
+  ],
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "zod": "^4.3.6"
+  },
+  "peerDependencies": {
+    "@agent-knowledge-hub/core": "^0.1.0"
+  },
+  "devDependencies": {
+    "@agent-knowledge-hub/core": "workspace:*",
+    "typescript": "^5.9.3"
+  }
+}

@@ -1,0 +1,48 @@
+{
+  "name": "@agent-knowledge-hub/react-graph",
+  "version": "0.1.0",
+  "description": "React graph components for Agent Knowledge Hub using Sigma.js and Graphology.",
+  "license": "MIT",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/gauravsaxena1997/agent-knowledge-hub.git",
+    "directory": "packages/react-graph"
+  },
+  "bugs": {
+    "url": "https://github.com/gauravsaxena1997/agent-knowledge-hub/issues"
+  },
+  "homepage": "https://github.com/gauravsaxena1997/agent-knowledge-hub/tree/main/packages/react-graph",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "package.json"
+  ],
+  "dependencies": {
+    "graphology": "^0.26.0",
+    "sigma": "^3.0.2"
+  },
+  "peerDependencies": {
+    "@agent-knowledge-hub/core": "^0.1.0",
+    "react": ">=18",
+    "react-dom": ">=18"
+  },
+  "devDependencies": {
+    "@agent-knowledge-hub/core": "workspace:*",
+    "@types/react": "^19.2.14",
+    "typescript": "^5.9.3"
+  }
+}

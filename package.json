@@ -1,0 +1,52 @@
+{
+  "name": "agent-knowledge-hub-workspace",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Graph-and-vector knowledge runtime for agents and host applications.",
+  "license": "MIT",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/gauravsaxena1997/agent-knowledge-hub.git"
+  },
+  "bugs": {
+    "url": "https://github.com/gauravsaxena1997/agent-knowledge-hub/issues"
+  },
+  "homepage": "https://github.com/gauravsaxena1997/agent-knowledge-hub#readme",
+  "keywords": [
+    "ai",
+    "agent-memory",
+    "agent-runtime",
+    "knowledge-graph",
+    "knowledge-base",
+    "vector-search",
+    "rag",
+    "graphrag",
+    "neo4j",
+    "qdrant",
+    "mcp"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "pnpm -r --sort build",
+    "db:up": "sh scripts/db-up.sh",
+    "db:down": "sh scripts/db-down.sh",
+    "db:reset": "sh scripts/db-reset.sh",
+    "db:seed": "pnpm --filter agent-knowledge-hub-local-runtime seed",
+    "test": "pnpm -r --if-present test",
+    "typecheck": "pnpm -r --if-present typecheck"
+  },
+  "devDependencies": {
+    "@types/node": "^20.19.0",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.5"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ]
+  },
+  "packageManager": "pnpm@10.0.0"
+}
