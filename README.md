@@ -1,4 +1,7 @@
-# Agent Knowledge Hub
+<h1>
+  <img src="./assets/branding/akh-icon.png" alt="Agent Knowledge Hub icon" width="40" valign="middle" />
+  Agent Knowledge Hub
+</h1>
 
 ![Agent Knowledge Hub hero](./assets/readme/hero-cover.png)
 
