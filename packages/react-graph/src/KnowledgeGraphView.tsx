@@ -20,6 +20,13 @@ import type {
 } from "./knowledge-graph/types.js";
 export type { KnowledgeGraphViewProps } from "./knowledge-graph/types.js";
 
+function forceLinkNodeId(value: unknown): string {
+  if (typeof value === "object" && value !== null && "id" in value) {
+    return String(value.id);
+  }
+  return String(value);
+}
+
 export function KnowledgeGraphView({
   graph,
   height = 560,
@@ -37,6 +44,7 @@ export function KnowledgeGraphView({
   const interactionResumeTimeoutRef = useRef<number | null>(null);
   const ambientMotionStartedAtRef = useRef<number | null>(null);
   const initial3dFitDoneRef = useRef(false);
+  const hoverEnabledRef = useRef(false);
   const [query, setQuery] = useState("");
   const [selectedKinds, setSelectedKinds] = useState<Set<KnowledgeNodeKindValue | string>>(() => new Set());
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
@@ -49,7 +57,7 @@ export function KnowledgeGraphView({
     [graph.nodes],
   );
   const ForceGraph3DComponent = forceGraph3DComponent;
-  const activeNeighborhoodNodeId = hoveredNodeId ?? selectedNodeId;
+  const activeNeighborhoodNodeId = selectedNodeId ?? hoveredNodeId;
   const graphPanelTitle = renderer === "3d" ? "Drag to rotate, scroll to zoom, click a node to inspect connections." : title;
   const filteredGraph = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
@@ -88,13 +96,22 @@ export function KnowledgeGraphView({
     }
     return neighborIds;
   }, [activeNeighborhoodNodeId, filteredGraph.edges]);
+  const selectedNeighborhoodNodeIds = useMemo(() => {
+    if (!selectedNodeId) return new Set<string>();
+    const neighborIds = new Set<string>([selectedNodeId]);
+    for (const edge of filteredGraph.edges) {
+      if (edge.fromId === selectedNodeId) neighborIds.add(edge.toId);
+      if (edge.toId === selectedNodeId) neighborIds.add(edge.fromId);
+    }
+    return neighborIds;
+  }, [filteredGraph.edges, selectedNodeId]);
   const forceGraph3DData = useMemo(() => buildForceGraph3DData(filteredGraph), [filteredGraph]);
   const graphKindLegend = useMemo(() => buildGraphKindLegend(filteredGraph.nodes), [filteredGraph.nodes]);
   const selectedNodeNeighborCount = useMemo(() => {
     if (!selectedNodeId) return 0;
-    return highlightedNodeIds.size > 0 ? highlightedNodeIds.size - 1 : 0;
-  }, [highlightedNodeIds.size, selectedNodeId]);
-  const isAmbientMotionEnabled = renderer === "3d" && !isUserInteracting;
+    return selectedNeighborhoodNodeIds.size > 0 ? selectedNeighborhoodNodeIds.size - 1 : 0;
+  }, [selectedNeighborhoodNodeIds.size, selectedNodeId]);
+  const isAmbientMotionEnabled = renderer === "3d" && !isUserInteracting && !selectedNodeId;
 
   useEffect(() => {
     if (!selectedNodeId) return;
@@ -185,11 +202,7 @@ export function KnowledgeGraphView({
     if (!activeNode) return;
     if (activeNode.x == null || activeNode.y == null || activeNode.z == null) return;
 
-    forceGraph3dRef.current?.cameraPosition(
-      { x: activeNode.x * 1.22, y: activeNode.y * 1.22, z: (activeNode.z ?? 0) + 92 },
-      activeNode,
-      900,
-    );
+    focusGraphNode(selectedNodeId);
   }, [forceGraph3DData.nodes, renderer, selectedNodeId]);
 
   useEffect(() => {
@@ -217,14 +230,14 @@ export function KnowledgeGraphView({
   }, [isAmbientMotionEnabled]);
 
   useEffect(() => {
-    if (renderer !== "3d") return;
+    if (renderer !== "3d" || selectedNodeId) return;
     const timeoutId = window.setTimeout(() => {
       forceGraph3dRef.current?.cameraPosition({ x: 0, y: 0, z: 320 }, { x: 0, y: 0, z: 0 }, 0);
       forceGraph3dRef.current?.zoomToFit?.(900, 112);
     }, 180);
 
     return () => window.clearTimeout(timeoutId);
-  }, [renderer, filteredGraph.nodes.length, filteredGraph.edges.length]);
+  }, [renderer, filteredGraph.nodes.length, filteredGraph.edges.length, selectedNodeId]);
 
   const toggleKind = (kind: KnowledgeNodeKindValue | string) => {
     setSelectedKinds((current) => {
@@ -252,22 +265,43 @@ export function KnowledgeGraphView({
     pauseAmbientMotion(1000);
   };
   const handleGraphPointerDown = () => {
+    hoverEnabledRef.current = true;
     pauseAmbientMotion();
   };
   const handleGraphPointerUp = () => {
-    pauseAmbientMotion(1000);
+    pauseAmbientMotion();
+  };
+  const handleGraphPointerMove = () => {
+    hoverEnabledRef.current = true;
+    pauseAmbientMotion();
+  };
+  const handleGraphPointerLeave = () => {
+    hoverEnabledRef.current = false;
+    setHoveredNodeId(null);
+    if (!selectedNodeId) setIsUserInteracting(false);
+  };
+  const focusGraphNode = (nodeId: string) => {
+    if (renderer !== "3d") return;
+    const activeNode = forceGraph3DData.nodes.find((node) => node.id === nodeId);
+    if (!activeNode || activeNode.x == null || activeNode.y == null || activeNode.z == null) return;
+    const distanceFromOrigin = Math.hypot(activeNode.x, activeNode.y, activeNode.z);
+    const focusDistance = 150;
+    const ratio = distanceFromOrigin > 1 ? 1 + focusDistance / distanceFromOrigin : 1;
+    const camera = distanceFromOrigin > 1
+      ? { x: activeNode.x * ratio, y: activeNode.y * ratio, z: activeNode.z * ratio }
+      : { x: activeNode.x, y: activeNode.y, z: activeNode.z + focusDistance };
+    forceGraph3dRef.current?.cameraPosition(camera, activeNode, 900);
+  };
+  const selectAndFocusNode = (nodeId: string) => {
+    hoverEnabledRef.current = false;
+    setHoveredNodeId(null);
+    pauseAmbientMotion();
+    setSelectedNodeId(nodeId);
   };
   const focusSelectedNode = () => {
     if (renderer !== "3d" || !selectedNodeId) return;
-    pauseAmbientMotion(2600);
-    const activeNode = forceGraph3DData.nodes.find((node) => node.id === selectedNodeId);
-    if (!activeNode || activeNode.x == null || activeNode.y == null || activeNode.z == null) return;
-
-    forceGraph3dRef.current?.cameraPosition(
-      { x: activeNode.x * 1.22, y: activeNode.y * 1.22, z: (activeNode.z ?? 0) + 92 },
-      activeNode,
-      900,
-    );
+    pauseAmbientMotion();
+    focusGraphNode(selectedNodeId);
   };
   const fitGraphToViewport = () => {
     if (renderer !== "3d") return;
@@ -344,10 +378,11 @@ export function KnowledgeGraphView({
           onWheel={handleGraphWheel}
           onMouseDown={handleGraphPointerDown}
           onMouseUp={handleGraphPointerUp}
+          onMouseMove={handleGraphPointerMove}
+          onMouseLeave={handleGraphPointerLeave}
         >
           {renderer === "3d" && ForceGraph3DComponent ? (
             <ForceGraph3DComponent
-              key={`3d-${filteredGraph.nodes.length}-${filteredGraph.edges.length}-${query}-${Array.from(selectedKinds).sort().join(",")}`}
               ref={forceGraph3dRef as Ref<ForceGraph3DInstance>}
               width={viewport.width}
               height={viewport.height}
@@ -364,38 +399,38 @@ export function KnowledgeGraphView({
                 return highlightedNodeIds.has(node.id) ? node.color : "#334155";
               }}
               linkColor={(link) => {
-                const sourceId = String(link.source);
-                const targetId = String(link.target);
+                const sourceId = forceLinkNodeId(link.source);
+                const targetId = forceLinkNodeId(link.target);
                 if (highlightedNodeIds.size === 0) return "rgba(196,213,255,0.34)";
                 return highlightedNodeIds.has(sourceId) && highlightedNodeIds.has(targetId)
                   ? "rgba(236,253,245,0.95)"
                   : "rgba(51,65,85,0.24)";
               }}
               linkWidth={(link) => {
-                const sourceId = String(link.source);
-                const targetId = String(link.target);
+                const sourceId = forceLinkNodeId(link.source);
+                const targetId = forceLinkNodeId(link.target);
                 if (hoveredNodeId && (sourceId === hoveredNodeId || targetId === hoveredNodeId)) return 1.4;
                 return selectedNodeId && (sourceId === selectedNodeId || targetId === selectedNodeId) ? 1.8 : 0.7;
               }}
               linkDirectionalParticles={(link) => {
-                const sourceId = String(link.source);
-                const targetId = String(link.target);
+                const sourceId = forceLinkNodeId(link.source);
+                const targetId = forceLinkNodeId(link.target);
                 if (hoveredNodeId && (sourceId === hoveredNodeId || targetId === hoveredNodeId)) return 2;
                 return selectedNodeId && (sourceId === selectedNodeId || targetId === selectedNodeId) ? 3 : 0;
               }}
               linkDirectionalParticleSpeed={0.0045}
               linkDirectionalParticleColor={() => "#dbeafe"}
               onNodeHover={(node) => {
+                if (selectedNodeId || !hoverEnabledRef.current) return;
                 setHoveredNodeId(node?.id ?? null);
               }}
               onNodeClick={(node) => {
-                pauseAmbientMotion(1000);
-                setSelectedNodeId(node.id);
+                selectAndFocusNode(node.id);
                 const data = filteredGraph.nodes.find((graphNode) => graphNode.id === node.id);
                 if (data) onNodeOpen?.(data);
               }}
               onEngineStop={() => {
-                if (initial3dFitDoneRef.current) return;
+                if (initial3dFitDoneRef.current || selectedNodeId) return;
                 initial3dFitDoneRef.current = true;
                 forceGraph3dRef.current?.cameraPosition({ x: 0, y: 0, z: 320 }, { x: 0, y: 0, z: 0 }, 0);
                 forceGraph3dRef.current?.zoomToFit?.(1000, 112);
@@ -412,7 +447,7 @@ export function KnowledgeGraphView({
           nodeColor={nodeColor}
           onSearchChange={setQuery}
           onSelectKind={toggleKind}
-          onSelectNode={setSelectedNodeId}
+          onSelectNode={selectAndFocusNode}
           query={query}
           renderer={renderer}
           selectedKinds={selectedKinds}
