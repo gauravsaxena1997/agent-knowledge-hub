@@ -166,6 +166,50 @@ export class Neo4jGraphStore implements GraphStore {
     }
   }
 
+  async replaceEdges(edgeIdsToReplace: readonly string[], edges: readonly KnowledgeEdge[]): Promise<KnowledgeEdge[]> {
+    const parsedEdges = edges.map((edge) => knowledgeEdgeZ.parse(edge));
+    const replacementIds = [...new Set(edgeIdsToReplace)];
+    const session = this.session();
+    try {
+      await session.executeWrite(async (tx) => {
+        if (replacementIds.length > 0) {
+          await tx.run(
+            "MATCH ()-[e:KNOWLEDGE_EDGE]->() WHERE e.id IN $ids DELETE e",
+            { ids: replacementIds },
+          );
+        }
+        await tx.run(
+          `
+          UNWIND $edges AS edge
+          MATCH (from:KnowledgeNode {id: edge.fromId})
+          MATCH (to:KnowledgeNode {id: edge.toId})
+          MERGE (from)-[e:KNOWLEDGE_EDGE {id: edge.id}]->(to)
+          SET e.kind = edge.kind,
+              e.label = edge.label,
+              e.fromId = edge.fromId,
+              e.toId = edge.toId,
+              e.metadataJson = edge.metadataJson,
+              e.sourceIds = edge.sourceIds,
+              e.confidence = edge.confidence,
+              e.updatedAt = edge.updatedAt,
+              e.createdAt = coalesce(e.createdAt, edge.createdAt)
+          `,
+          {
+            edges: parsedEdges.map((edge) => ({
+              ...edge,
+              metadataJson: safeJson(edge.metadata),
+              createdAt: edge.createdAt ?? new Date().toISOString(),
+              updatedAt: edge.updatedAt ?? new Date().toISOString(),
+            })),
+          },
+        );
+      });
+      return parsedEdges;
+    } finally {
+      await session.close();
+    }
+  }
+
   async upsertSource(source: SourceRef): Promise<SourceRef> {
     const parsed = sourceRefZ.parse(source);
     const session = this.session();

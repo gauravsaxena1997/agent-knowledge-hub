@@ -1,6 +1,8 @@
-import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import type { GraphStore, KnowledgeRetriever } from "@agent-knowledge-hub/core";
+
+export { McpServer };
 
 export const KnowledgeMcpAccessLevel = {
   READ: "read",

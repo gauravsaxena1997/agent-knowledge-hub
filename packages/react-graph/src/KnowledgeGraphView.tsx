@@ -35,6 +35,7 @@ export function KnowledgeGraphView({
   const sigmaRef = useRef<SigmaRenderer | null>(null);
   const forceGraph3dRef = useRef<ForceGraph3DInstance | null>(null);
   const interactionResumeTimeoutRef = useRef<number | null>(null);
+  const ambientMotionStartedAtRef = useRef<number | null>(null);
   const initial3dFitDoneRef = useRef(false);
   const [query, setQuery] = useState("");
   const [selectedKinds, setSelectedKinds] = useState<Set<KnowledgeNodeKindValue | string>>(() => new Set());
@@ -42,7 +43,6 @@ export function KnowledgeGraphView({
   const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
   const [forceGraph3DComponent, setForceGraph3DComponent] = useState<ForceGraph3DComponentType | null>(null);
   const [viewport, setViewport] = useState({ width: 0, height: 0 });
-  const [isPointerInsideGraph, setIsPointerInsideGraph] = useState(false);
   const [isUserInteracting, setIsUserInteracting] = useState(false);
   const availableKinds = useMemo(
     () => Array.from(new Set(graph.nodes.map((node) => node.kind))).sort(),
@@ -94,7 +94,7 @@ export function KnowledgeGraphView({
     if (!selectedNodeId) return 0;
     return highlightedNodeIds.size > 0 ? highlightedNodeIds.size - 1 : 0;
   }, [highlightedNodeIds.size, selectedNodeId]);
-  const isAmbientMotionEnabled = renderer === "3d" && !isPointerInsideGraph && !isUserInteracting && !selectedNodeId && !hoveredNodeId;
+  const isAmbientMotionEnabled = renderer === "3d" && !isUserInteracting;
 
   useEffect(() => {
     if (!selectedNodeId) return;
@@ -196,8 +196,11 @@ export function KnowledgeGraphView({
     if (!isAmbientMotionEnabled) return;
 
     let frameId = 0;
-    const tick = () => {
-      const time = Date.now() * 0.00008;
+    if (ambientMotionStartedAtRef.current == null) {
+      ambientMotionStartedAtRef.current = window.performance.now();
+    }
+    const tick = (now: number) => {
+      const time = (now - ambientMotionStartedAtRef.current!) * 0.00008;
       forceGraph3dRef.current?.cameraPosition(
         {
           x: Math.cos(time) * 320,
@@ -217,7 +220,7 @@ export function KnowledgeGraphView({
     if (renderer !== "3d") return;
     const timeoutId = window.setTimeout(() => {
       forceGraph3dRef.current?.cameraPosition({ x: 0, y: 0, z: 320 }, { x: 0, y: 0, z: 0 }, 0);
-      forceGraph3dRef.current?.zoomToFit?.(900, 72);
+      forceGraph3dRef.current?.zoomToFit?.(900, 112);
     }, 180);
 
     return () => window.clearTimeout(timeoutId);
@@ -245,24 +248,14 @@ export function KnowledgeGraphView({
       }, resumeAfterMs);
     }
   };
-  const handleGraphPointerEnter = () => {
-    if (renderer !== "3d") return;
-    setIsPointerInsideGraph(true);
-    pauseAmbientMotion();
-  };
-  const handleGraphPointerLeave = () => {
-    if (renderer !== "3d") return;
-    setIsPointerInsideGraph(false);
-    pauseAmbientMotion(1400);
-  };
   const handleGraphWheel = () => {
-    pauseAmbientMotion(2200);
+    pauseAmbientMotion(1000);
   };
   const handleGraphPointerDown = () => {
     pauseAmbientMotion();
   };
   const handleGraphPointerUp = () => {
-    pauseAmbientMotion(2200);
+    pauseAmbientMotion(1000);
   };
   const focusSelectedNode = () => {
     if (renderer !== "3d" || !selectedNodeId) return;
@@ -278,18 +271,19 @@ export function KnowledgeGraphView({
   };
   const fitGraphToViewport = () => {
     if (renderer !== "3d") return;
-    pauseAmbientMotion(2600);
-    forceGraph3dRef.current?.zoomToFit?.(900, 72);
+    pauseAmbientMotion(1000);
+    forceGraph3dRef.current?.zoomToFit?.(900, 112);
   };
   const resetGraphView = () => {
     setSelectedNodeId(null);
     setHoveredNodeId(null);
     if (renderer === "3d") {
-      pauseAmbientMotion(2600);
-      forceGraph3dRef.current?.cameraPosition({ x: 0, y: 0, z: 320 }, { x: 0, y: 0, z: 0 }, 800);
-      window.setTimeout(() => {
-        forceGraph3dRef.current?.zoomToFit?.(900, 72);
-      }, 120);
+      if (interactionResumeTimeoutRef.current != null) {
+        window.clearTimeout(interactionResumeTimeoutRef.current);
+        interactionResumeTimeoutRef.current = null;
+      }
+      ambientMotionStartedAtRef.current = window.performance.now();
+      setIsUserInteracting(false);
     }
   };
 
@@ -347,8 +341,6 @@ export function KnowledgeGraphView({
         <div
           ref={containerRef}
           style={{ position: "absolute", inset: 0 }}
-          onMouseEnter={handleGraphPointerEnter}
-          onMouseLeave={handleGraphPointerLeave}
           onWheel={handleGraphWheel}
           onMouseDown={handleGraphPointerDown}
           onMouseUp={handleGraphPointerUp}
@@ -394,11 +386,10 @@ export function KnowledgeGraphView({
               linkDirectionalParticleSpeed={0.0045}
               linkDirectionalParticleColor={() => "#dbeafe"}
               onNodeHover={(node) => {
-                if (node) pauseAmbientMotion(1800);
                 setHoveredNodeId(node?.id ?? null);
               }}
               onNodeClick={(node) => {
-                pauseAmbientMotion(2600);
+                pauseAmbientMotion(1000);
                 setSelectedNodeId(node.id);
                 const data = filteredGraph.nodes.find((graphNode) => graphNode.id === node.id);
                 if (data) onNodeOpen?.(data);
@@ -407,7 +398,7 @@ export function KnowledgeGraphView({
                 if (initial3dFitDoneRef.current) return;
                 initial3dFitDoneRef.current = true;
                 forceGraph3dRef.current?.cameraPosition({ x: 0, y: 0, z: 320 }, { x: 0, y: 0, z: 0 }, 0);
-                forceGraph3dRef.current?.zoomToFit?.(1000, 72);
+                forceGraph3dRef.current?.zoomToFit?.(1000, 112);
               }}
             />
           ) : null}
