@@ -1,0 +1,19 @@
+{
+  "name": "agent-knowledge-hub-local-runtime",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "apply": "tsx src/apply-snapshot.ts",
+    "seed": "tsx src/seed.ts"
+  },
+  "dependencies": {
+    "@agent-knowledge-hub/core": "workspace:*",
+    "@agent-knowledge-hub/demo-data": "workspace:*",
+    "@agent-knowledge-hub/neo4j": "workspace:*",
+    "@agent-knowledge-hub/qdrant": "workspace:*"
+  },
+  "devDependencies": {
+    "tsx": "^4.21.0"
+  }
+}

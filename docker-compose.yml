@@ -1,0 +1,34 @@
+# Development-only local services. Do not use this file as a production deployment.
+name: agent-knowledge-hub
+
+services:
+  neo4j:
+    image: neo4j:5.26-community
+    container_name: agent-knowledge-hub-neo4j
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:7474:7474"
+      - "127.0.0.1:7687:7687"
+    environment:
+      NEO4J_AUTH: "neo4j/agent-knowledge-hub-local"
+      NEO4J_server_memory_heap_initial__size: "192m"
+      NEO4J_server_memory_heap_max__size: "256m"
+      NEO4J_server_memory_pagecache_size: "96m"
+    volumes:
+      - neo4j_data:/data
+      - neo4j_logs:/logs
+
+  qdrant:
+    image: qdrant/qdrant:v1.18.0
+    container_name: agent-knowledge-hub-qdrant
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:6333:6333"
+      - "127.0.0.1:6334:6334"
+    volumes:
+      - qdrant_data:/qdrant/storage
+
+volumes:
+  neo4j_data:
+  neo4j_logs:
+  qdrant_data:
